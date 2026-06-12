@@ -3,7 +3,7 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 
-const IDURA_DOMAIN = 'https://auth.idura.io';
+const IDURA_DOMAIN = 'https://veurofy-dev.test.idura.broker';
 const CLIENT_ID = 'veurofy-android';
 const CLIENT_SECRET = 'ooHDgS7/R9Un9kPXW2z8le0B1KnyDbx8SkGGN93Xtgk=';
 
