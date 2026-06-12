@@ -1,5 +1,7 @@
 const express = require('express');
 const axios = require('axios');
+const twilio = require('twilio');
+const crypto = require('crypto');
 const app = express();
 app.use(express.json());
 
@@ -7,55 +9,17 @@ const IDURA_DOMAIN = 'https://veurofy-dev.test.idura.broker';
 const CLIENT_ID = 'veurofy-android';
 const CLIENT_SECRET = 'ooHDgS7/R9Un9kPXW2z8le0B1KnyDbx8SkGGN93Xtgk=';
 const BASIC_AUTH = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
+const BACKEND_URL = 'https://veurofy-ciba-backend-production.up.railway.app';
 
-app.post('/ciba/initiate', async (req, res) => {
-  const { phone_number } = req.body;
-  console.log('CIBA initiate called, phone_number:', phone_number);
-  try {
-    const params = new URLSearchParams({
-      login_hint: phone_number,
-      scope: 'openid',
-      binding_message: 'Approve Veurofy call protection'
-    });
-    const response = await axios.post(
-      `${IDURA_DOMAIN}/ciba/bc-authorize`,
-      params.toString(),
-      { headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': `Basic ${BASIC_AUTH}`
-      }}
-    );
-    res.json(response.data);
-  } catch (err) {
-    console.error('CIBA initiate error:', JSON.stringify(err.response?.data || err.message));
-    res.status(500).json({ error: err.response?.data || err.message });
-  }
-});
+const TWILIO_ACCOUNT_SID = 'ACc44d91b933091089653c359a627b';
+const TWILIO_AUTH_TOKEN = 'b7a3391cec9c100af4bb30e53a5255eb';
+const TWILIO_PHONE_NUMBER = '+18144488840';
+const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
-app.post('/ciba/token', async (req, res) => {
-  const { auth_req_id } = req.body;
-  console.log('CIBA token poll, auth_req_id:', auth_req_id);
-  try {
-    const params = new URLSearchParams({
-      grant_type: 'urn:openid:params:grant-type:ciba',
-      auth_req_id
-    });
-    const response = await axios.post(
-      `${IDURA_DOMAIN}/oauth2/token`,
-      params.toString(),
-      { headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': `Basic ${BASIC_AUTH}`
-      }}
-    );
-    res.json(response.data);
-  } catch (err) {
-    console.error('CIBA token error:', JSON.stringify(err.response?.data || err.message));
-    res.status(500).json({ error: err.response?.data || err.message });
-  }
-});
+// In-memory session store
+const sessions = {};
 
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Veurofy CIBA backend running on port ${PORT}`));
+// POST /verify/initiate — called by Android app when a call comes in
+app.post('/verify/initiate', async (req, res) => {
+  const { caller_phone_number } = req.body;
+  if (!caller_phone_number) return res.status(400).json({ error:
