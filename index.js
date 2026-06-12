@@ -9,31 +9,45 @@ const CLIENT_SECRET = 'ooHDgS7/R9Un9kPXW2z8le0B1KnyDbx8SkGGN93Xtgk=';
 
 app.post('/ciba/initiate', async (req, res) => {
   const { phone_number } = req.body;
+  console.log('CIBA initiate called, phone_number:', phone_number);
   try {
-    const response = await axios.post(`${IDURA_DOMAIN}/protocol/openid-connect/ext/ciba/auth`, {
+    const params = new URLSearchParams({
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
       login_hint: phone_number,
       scope: 'openid',
       binding_message: 'Approve Veurofy call protection'
-    }, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+    });
+    const response = await axios.post(
+      `${IDURA_DOMAIN}/protocol/openid-connect/ext/ciba/auth`,
+      params.toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
     res.json(response.data);
   } catch (err) {
+    console.error('CIBA initiate error:', JSON.stringify(err.response?.data || err.message));
     res.status(500).json({ error: err.response?.data || err.message });
   }
 });
 
 app.post('/ciba/token', async (req, res) => {
   const { auth_req_id } = req.body;
+  console.log('CIBA token poll, auth_req_id:', auth_req_id);
   try {
-    const response = await axios.post(`${IDURA_DOMAIN}/protocol/openid-connect/token`, {
+    const params = new URLSearchParams({
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
       grant_type: 'urn:openid:params:grant-type:ciba',
       auth_req_id
-    }, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+    });
+    const response = await axios.post(
+      `${IDURA_DOMAIN}/protocol/openid-connect/token`,
+      params.toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
     res.json(response.data);
   } catch (err) {
+    console.error('CIBA token error:', JSON.stringify(err.response?.data || err.message));
     res.status(500).json({ error: err.response?.data || err.message });
   }
 });
