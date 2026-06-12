@@ -19,7 +19,7 @@ app.post('/ciba/initiate', async (req, res) => {
       binding_message: 'Approve Veurofy call protection'
     });
     const response = await axios.post(
-      `${IDURA_DOMAIN}/protocol/openid-connect/ext/ciba/auth`,
+      `${IDURA_DOMAIN}/ciba/bc-authorize`,
       params.toString(),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
@@ -41,7 +41,7 @@ app.post('/ciba/token', async (req, res) => {
       auth_req_id
     });
     const response = await axios.post(
-      `${IDURA_DOMAIN}/protocol/openid-connect/token`,
+      `${IDURA_DOMAIN}/oauth2/token`,
       params.toString(),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
