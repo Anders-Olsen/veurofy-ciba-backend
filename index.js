@@ -4,6 +4,7 @@ const twilio = require('twilio');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const http = require('http');
+
 const app = express();
 app.use(express.json());
 
@@ -12,61 +13,46 @@ const CLIENT_ID = 'veurofy-android';
 const CLIENT_SECRET = 'ooHDgS7/R9Un9kPXW2z8le0B1KnyDbx8SkGGN93Xtgk=';
 const BASIC_AUTH = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
 const BACKEND_URL = 'https://veurofy-ciba-backend-production.up.railway.app';
-
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
 const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-
 const sessions = {};
-
-// ─── WebSocket Signaling Server ───────────────────────────────────────────────
-// Rooms map: roomId → Set of WebSocket clients
 const rooms = {};
+const dtmfBuffers = {};
 
 function joinRoom(roomId, ws) {
-  if (!rooms[roomId]) rooms[roomId] = new
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+  if (!rooms[roomId]) rooms[roomId] = new Set();
+  rooms[roomId].add(ws);
+  ws.roomId = roomId;
+  console.log(`WS: ${ws.peerId} joined room ${roomId} (${rooms[roomId].size} peers)`);
+}
 
-wss.on('connection', (ws) => {
-  ws.peerId = crypto.randomUUID();
-  console.log(`WS: new connection ${ws.peerId}`);
+function leaveRoom(ws) {
+  const room = rooms[ws.roomId];
+  if (!room) return;
+  room.delete(ws);
+  console.log(`WS: ${ws.peerId} left room ${ws.roomId} (${room.size} peers)`);
+  if (room.size === 0) delete rooms[ws.roomId];
+}
 
-  ws.on('message', (data) => {
-    try {
-      const msg = JSON.parse(data);
-      switch (msg.type) {
-        case 'join':
-          joinRoom(msg.roomId, ws);
-          broadcast(ws, { type: 'peer-joined', peerId: ws.peerId });
-          break;
-        case 'offer':
-        case 'answer':
-        case 'ice-candidate':
-          broadcast(ws, { ...msg, fromPeerId: ws.peerId });
-          break;
-        case 'dtmf':
-          handleDtmf(ws.roomId, msg.digit);
-          break;
-        default:
-          console.log(`WS: unknown message type: ${msg.type}`);
-      }
-    } catch (e) {
-      console.error('WS: parse error', e.message);
-    }
+function broadcast(ws, message) {
+  const room = rooms[ws.roomId];
+  if (!room) return;
+  const data = JSON.stringify(message);
+  room.forEach(client => {
+    if (client !== ws && client.readyState === 1) client.send(data);
   });
+}
 
-  ws.on('close', () => {
-    broadcast(ws, { type: 'peer-left', peerId: ws.peerId });
-    leaveRoom(ws);
+function notifyRoom(roomId, message) {
+  const room = rooms[roomId];
+  if (!room) return;
+  const data = JSON.stringify(message);
+  room.forEach(client => {
+    if (client.readyState === 1) client.send(data);
   });
-
-  ws.on('error', (err) => console.error(`WS error ${ws.peerId}:`, err.message));
-});
-
-// DTMF digit accumulator per room
-const dtmfBuffers = {};
+}
 
 function handleDtmf(roomId, digit) {
   if (!dtmfBuffers[roomId]) dtmfBuffers[roomId] = { digits: '', timer: null };
@@ -88,22 +74,12 @@ function handleDtmf(roomId, digit) {
   } else if (digit === '*' || digit === '0') {
     buf.digits = '';
     clearTimeout(buf.timer);
-    console.log(`DTMF: declined for room ${roomId}`);
     notifyRoom(roomId, { type: 'verification-declined' });
   } else if (digit === '9') {
     notifyRoom(roomId, { type: 'replay-prompt' });
   } else if (digit === '1') {
     notifyRoom(roomId, { type: 'retry-verification' });
   }
-}
-
-function notifyRoom(roomId, message) {
-  const room = rooms[roomId];
-  if (!room) return;
-  const data = JSON.stringify(message);
-  room.forEach(client => {
-    if (client.readyState === 1) client.send(data);
-  });
 }
 
 async function initiateCiba(roomId, cpr) {
@@ -117,10 +93,7 @@ async function initiateCiba(roomId, cpr) {
     const response = await axios.post(
       `${IDURA_DOMAIN}/ciba/bc-authorize`,
       params.toString(),
-      { headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${BASIC_AUTH}`
-      }}
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': `Basic ${BASIC_AUTH}` }}
     );
     const { auth_req_id, expires_in } = response.data;
     console.log(`CIBA: auth_req_id=${auth_req_id} for room ${roomId}`);
@@ -146,10 +119,7 @@ async function pollCibaToken(roomId, authReqId, expiresAt) {
       const response = await axios.post(
         `${IDURA_DOMAIN}/oauth2/token`,
         params.toString(),
-        { headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': `Basic ${BASIC_AUTH}`
-        }}
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': `Basic ${BASIC_AUTH}` }}
       );
       clearInterval(interval);
       const idToken = response.data.id_token;
@@ -169,7 +139,44 @@ async function pollCibaToken(roomId, authReqId, expiresAt) {
       notifyRoom(roomId, { type: 'verification-failed', reason: err.response?.data?.error || 'poll-error' });
     }
   }, 3000);
-}// ─── Verify endpoints (kept for reference) ────────────────────────────────────
+}
+
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
+wss.on('connection', (ws) => {
+  ws.peerId = crypto.randomUUID();
+  console.log(`WS: new connection ${ws.peerId}`);
+  ws.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data);
+      switch (msg.type) {
+        case 'join':
+          joinRoom(msg.roomId, ws);
+          broadcast(ws, { type: 'peer-joined', peerId: ws.peerId });
+          break;
+        case 'offer':
+        case 'answer':
+        case 'ice-candidate':
+          broadcast(ws, { ...msg, fromPeerId: ws.peerId });
+          break;
+        case 'dtmf':
+          handleDtmf(ws.roomId, msg.digit);
+          break;
+        default:
+          console.log(`WS: unknown message type: ${msg.type}`);
+      }
+    } catch (e) {
+      console.error('WS: parse error', e.message);
+    }
+  });
+  ws.on('close', () => {
+    broadcast(ws, { type: 'peer-left', peerId: ws.peerId });
+    leaveRoom(ws);
+  });
+  ws.on('error', (err) => console.error(`WS error ${ws.peerId}:`, err.message));
+});
+
 app.post('/verify/initiate', async (req, res) => {
   const { caller_phone_number } = req.body;
   if (!caller_phone_number) return res.status(400).json({ error: 'caller_phone_number required' });
