@@ -6,14 +6,13 @@ app.use(express.json());
 const IDURA_DOMAIN = 'https://veurofy-dev.test.idura.broker';
 const CLIENT_ID = 'veurofy-android';
 const CLIENT_SECRET = 'ooHDgS7/R9Un9kPXW2z8le0B1KnyDbx8SkGGN93Xtgk=';
+const BASIC_AUTH = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
 
 app.post('/ciba/initiate', async (req, res) => {
   const { phone_number } = req.body;
   console.log('CIBA initiate called, phone_number:', phone_number);
   try {
     const params = new URLSearchParams({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
       login_hint: phone_number,
       scope: 'openid',
       binding_message: 'Approve Veurofy call protection'
@@ -21,7 +20,10 @@ app.post('/ciba/initiate', async (req, res) => {
     const response = await axios.post(
       `${IDURA_DOMAIN}/ciba/bc-authorize`,
       params.toString(),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      { headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${BASIC_AUTH}`
+      }}
     );
     res.json(response.data);
   } catch (err) {
@@ -35,15 +37,16 @@ app.post('/ciba/token', async (req, res) => {
   console.log('CIBA token poll, auth_req_id:', auth_req_id);
   try {
     const params = new URLSearchParams({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
       grant_type: 'urn:openid:params:grant-type:ciba',
       auth_req_id
     });
     const response = await axios.post(
       `${IDURA_DOMAIN}/oauth2/token`,
       params.toString(),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      { headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${BASIC_AUTH}`
+      }}
     );
     res.json(response.data);
   } catch (err) {
