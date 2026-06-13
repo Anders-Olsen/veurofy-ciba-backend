@@ -23,9 +23,23 @@ const dtmfBuffers = {};
 
 function joinRoom(roomId, ws) {
   if (!rooms[roomId]) rooms[roomId] = new Set();
+  const existingPeers = rooms[roomId].size;
   rooms[roomId].add(ws);
   ws.roomId = roomId;
   console.log(`WS: ${ws.peerId} joined room ${roomId} (${rooms[roomId].size} peers)`);
+
+  if (existingPeers === 0) {
+    // First peer — just wait
+  } else {
+    // Notify existing peers that someone joined
+    rooms[roomId].forEach(client => {
+      if (client !== ws && client.readyState === 1) {
+        client.send(JSON.stringify({ type: 'peer-joined', peerId: ws.peerId, isInitiator: false }));
+      }
+    });
+    // Tell the newcomer there's already a peer — newcomer becomes initiator
+    ws.send(JSON.stringify({ type: 'peer-joined', peerId: 'existing', isInitiator: true }));
+  }
 }
 
 function leaveRoom(ws) {
@@ -153,7 +167,6 @@ wss.on('connection', (ws) => {
       switch (msg.type) {
         case 'join':
           joinRoom(msg.roomId, ws);
-          broadcast(ws, { type: 'peer-joined', peerId: ws.peerId });
           break;
         case 'offer':
         case 'answer':
